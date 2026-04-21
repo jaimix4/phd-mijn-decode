@@ -186,63 +186,56 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
     # ---------------------------------------------------------
     # ROUTE 3: MATLAB FMINCON (via pyfmincon)
     # ---------------------------------------------------------
+
     elif optimizer_choice == 'fmincon':
-
-        import matlab
+        # Import the bridged function from your local opt.py file
+        from opt import fmincon 
         
-        # 1. We must wrap our objective function so it accepts a matlab.double array
-        # MATLAB passes the guess as a 1x5 matrix (e.g., x[0][0], x[0][1]...)
-        def matlab_obj_wrapper(x_matlab):
-            params = [x_matlab[0][i] for i in range(5)]
-            cost = objective_function(params, Te_data, target_data_scaled, weight_w)
-            return float(cost) # MATLAB needs a standard float back
+        # 1. Bounds (Standard Python Lists, using math.inf)
+        lb = [1e-12, 0.01, 0.001, 0.1, -20.0]
+        ub = [math.inf, math.inf, 70.0,  80.0, 20.0]
         
-        
-        # 2. Format Bounds into MATLAB arrays
-        # Note: Python's math.inf works perfectly inside matlab.double
-        lb = matlab.double([[1e-12, 0.01, 0.001, 0.1, -20.0]])
-        ub = matlab.double([[math.inf, math.inf, 70.0, 80.0, 20.0]])
-
-
-        # 3. Format Linear Constraints (A * x <= b)
-        A = matlab.double([
+        # 2. Linear Constraints (A * x <= b)
+        # alpha + gamma >= 0  ->  -alpha - gamma <= 0
+        # gamma - beta <= 2   ->  -beta + gamma <= 2
+        A = [
             [0.0, -1.0,  0.0, 0.0, -1.0], 
             [0.0,  0.0, -1.0, 0.0,  1.0]
-        ])
-        b = matlab.double([[0.0], [2.0]]) # b is a column vector
+        ]
+        b = [0.0, 2.0]
         
-        x0_mat = matlab.double([initial_guess])
-        empty = matlab.double([])
-
-
-        # 4. Set the exact Paper Options via the engine
-        opts = eng.optimoptions('fmincon',
-            'Algorithm', 'interior-point',
-            'Display', 'iter',
-            'MaxIterations', 8000.0,
-            'FiniteDifferenceType', 'central',
-            'StepTolerance', 1e-12,
-            'FunctionTolerance', 1e-12,
-            'ConstraintTolerance', 1e-12,
-            'OptimalityTolerance', 1e-18
+        # 3. Exact Paper Options Dictionary
+        options = {
+            'Algorithm': 'interior-point',
+            'Display': 'iter',
+            'MaxIterations': 8000,
+            'FiniteDifferenceType': 'central',
+            'StepTolerance': 1e-12,
+            'FunctionTolerance': 1e-12,
+            'ConstraintTolerance': 1e-12,
+            'OptimalityTolerance': 1e-18
+        }
+        
+        # 4. Call the bridge using the original pyfmincon arguments
+        xopt, fopt, exitflag, output = fmincon(
+            obj_wrapper, 
+            initial_guess, 
+            lb, 
+            ub, 
+            options=options, 
+            A=A, 
+            b=b, 
+            eng=eng
         )
-
-        # 5. Call fmincon! (nargout=4 tells MATLAB to return the first 4 outputs)
-        xopt, fval, exitflag, output = eng.fmincon(
-            matlab_obj_wrapper, 
-            x0_mat, A, b, empty, empty, lb, ub, empty, 
-            opts, 
-            nargout=4
-        )
-
-        # 6. Wrap it in a Dummy SciPy Result object to keep the main script happy
+        
+        # 5. Package into a generic result object for fit_manager.py
         class DummyResult: pass
         result = DummyResult()
         
-        # Extract the results from the 1x5 matlab.double output
-        result.x = [xopt[0][i] for i in range(5)] 
-        
-        # In MATLAB, exitflag > 0 means the optimization successfully converged
-        result.success = (exitflag > 0) 
+        # Ensure it returns a flat 1D array/list
+        result.x = np.array(xopt).flatten()
+        result.success = (exitflag > 0)
         
         return result
+
+    
