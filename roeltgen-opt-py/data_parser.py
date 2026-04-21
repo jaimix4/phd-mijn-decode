@@ -3,7 +3,7 @@
 
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
-
+import os
 
 def load_adas_plt_h(filepath):
     """
@@ -63,3 +63,53 @@ def get_lz_si(ne, te_ev, interp):
     # 2. Convert result to W*m^3
     # 10**log_lz gives W*cm^3. Multiply by 1e-6 to get W*m^3
     return (10**log_lz) * 1e-6
+
+def load_roeltgen_formatted(species, charge_state, log10_ne_cm3=13.0, data_dir="plt_data"):
+    """
+    Loads the author's formatted ADAS text files (e.g., plt96_h_formatted.txt).
+    
+    Columns expected:
+    0: Charge State
+    1: log10(Te [eV])
+    2: log10(Ne [cm^-3])
+    3: log10(Lz [W cm^3])
+    """
+    # The authors use lowercase for the element in the filename (e.g., 'h', 'he', 'li')
+    filename = f"plt96_{species.lower()}_formatted.txt"
+    filepath = os.path.join(data_dir, filename)
+    
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Could not find data file: {filepath}")
+        
+    # Read data, skipping the text header line
+    data = np.loadtxt(filepath, skiprows=1)
+    
+    charges = data[:, 0]
+    log_te  = data[:, 1]
+    log_ne  = data[:, 2]
+    log_lz  = data[:, 3]
+
+    # charges start at 1 in the files, adjust this:
+    charge_state = charge_state + 1
+    
+    # 1. Filter by the requested Charge State
+    mask_charge = (charges == charge_state)
+    if not np.any(mask_charge):
+        raise ValueError(f"Charge state {charge_state} not found for species {species}.")
+        
+    # 2. Filter by the nearest electron density
+    # The paper standard is n_e = 1e19 m^-3, which is 1e13 cm^-3 (log10 = 13.0)
+    unique_ne = np.unique(log_ne[mask_charge])
+    closest_ne = unique_ne[np.argmin(np.abs(unique_ne - log10_ne_cm3))]
+    mask_ne = np.isclose(log_ne, closest_ne)
+    
+    # Combine the masks
+    final_mask = mask_charge & mask_ne
+    
+    # 3. Extract and convert to true physical values (SI Units)
+    te_physical = 10 ** log_te[final_mask]
+    
+    # Lz is in W*cm^3. To convert to W*m^3, we multiply by 1e-6
+    lz_physical = (10 ** log_lz[final_mask]) * 1e-6 
+    
+    return te_physical, lz_physical

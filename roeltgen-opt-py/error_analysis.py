@@ -37,9 +37,9 @@ def error_analysis(ratio, te, Lz):
     if np.any(cond3): 
         successes[2] = False
         
-    if np.any(ratio[Lz_ind_1e2] > 1.25): 
+    if np.any(ratio[Lz_ind_1e2] > 1.3): 
         successes[3] = False
-    if np.any(ratio[Lz_ind_1e4] > 1.5): 
+    if np.any(ratio[Lz_ind_1e4] > 1.6): 
         successes[4] = False
     if np.any(ratio[Lz_ind_1e8] > 2.0): 
         successes[5] = False

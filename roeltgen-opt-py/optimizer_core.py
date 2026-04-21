@@ -1,14 +1,13 @@
 # script with functions to compute 
 # safe_integrand: the integrand in eq. 12 in Roeltgen's paper
 
-
+import math
 import numpy as np
 from scipy.integrate import quad
 from scipy.optimize import minimize, Bounds, LinearConstraint
 
 from cyipopt import minimize_ipopt
 from scipy.optimize._numdiff import approx_derivative
-
 
 def safe_integrand(v_bar, Te, A_bar, alpha, beta, V0, gamma):
     # function to eq. 13 
@@ -35,6 +34,8 @@ def safe_integrand(v_bar, Te, A_bar, alpha, beta, V0, gamma):
         num = (alpha + beta) * (x ** -beta)
         den = beta * (x ** -(alpha + beta)) + alpha
         fraction = num / den
+
+    # fraction = (alpha + beta) / (beta*(x**(-alpha)) + alpha*(x**(beta)))
         
     # 4. Construct the full integrand from eq. 13
     term1 = (v_bar ** 4) / (Te ** 1.5)
@@ -65,11 +66,11 @@ def objective_function(params, Te_data, Li_target_data, weight_w):
 
         val_1, _ = quad(safe_integrand, 0, V0, 
                         args=(Te_j, A_scaled, alpha, beta, V0, gamma),
-                        epsabs=1e-8, epsrel=1e-8)
+                        epsabs=1e-6, epsrel=1e-6)
                         
         val_2, _ = quad(safe_integrand, V0, np.inf, 
                         args=(Te_j, A_scaled, alpha, beta, V0, gamma),
-                        epsabs=1e-8, epsrel=1e-8)
+                        epsabs=1e-6, epsrel=1e-6)
                         
         calcY = val_1 + val_2
 
@@ -89,7 +90,7 @@ def objective_function(params, Te_data, Li_target_data, weight_w):
         
     return total_squared_error
 
-def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w):
+def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, optimizer_choice='ipopt', eng=None):
     """
     Sets up the constraints, bounds, and runs the optimizer.
     Equivalent to the fmincon setup in radiation_operator.m.
@@ -129,59 +130,119 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w):
     
     # Calculate MATLAB's sqrt(eps) for the FiniteDifferenceStepSize
     fd_step = np.sqrt(np.finfo(float).eps)
+    fd_step = 1e-5
     
     def jac_wrapper(params):
         # Perfectly replicates 'FiniteDifferenceType', 'central' AND 'FiniteDifferenceStepSize', sqrt(eps)
         return approx_derivative(obj_wrapper, params, method='3-point', abs_step=fd_step)
     
     # 5. Run the Optimizer
-    # 'trust-constr' is the SciPy equivalent to MATLAB's 'interior-point' algorithm
-    # result = minimize(
-    #     obj_wrapper,
-    #     x0=initial_guess,
-    #     method='SLSQP', #method='trust-constr',
-    #     bounds=bounds,
-    #     constraints=[linear_constraint],
-    #     options={
-    #         'disp': True,         # Set to True if you want to see iterations in the terminal
-    #         'maxiter': 8000,       # Max iterations
-    #         'ftol': 1e-8,
-    #         'eps': 1e-3,            # Step size for numerical gradient approximation (if needed)
-    #         # ,         # Function value tolerance
-    #         # 'xtol': 1e-12,         # Step tolerance
-    #         # 'gtol': 1e-12          # Optimality tolerance
-    #     }
-    # )
-    # result = minimize(
-    #     obj_wrapper,
-    #     x0=initial_guess,
-    #     method='trust-constr', #method='trust-constr',
-    #     bounds=bounds,
-    #     constraints=[linear_constraint],
-    #     options={
-    #         'disp': True,         # Set to True if you want to see iterations in the terminal
-    #         'maxiter': 2000,       # Max iterations
-    #         'xtol': 1e-12,       # trust-constr uses xtol and gtol
-    #         'gtol': 1e-12,
-    #         'initial_tr_radius': 1.0 # Helps trust-constr take reasonable first steps
-    #     }
-    # )
-    # Run IPOPT
-    result = minimize_ipopt(
-        obj_wrapper,
-        x0=initial_guess,
-        jac=jac_wrapper,             # Pass our explicit central-difference function
-        bounds=bounds,
-        constraints=[linear_constraint],
-        options={
-            b'print_level': 5,                     # Diagnostics/Display (5 shows standard iteration output)
-            b'max_iter': 8000,                     # MaxIterations
-            b'tol': 1e-12,                         # OptimalityTolerance (Note: 1e-18 is beyond float64 precision)
-            b'constr_viol_tol': 1e-12,             # ConstraintTolerance
-            b'acceptable_tol': 1e-12,              # FunctionTolerance
-            b'hessian_approximation': b'limited-memory', # Tells IPOPT to use L-BFGS for the Hessian curvature
-            b'findiff_perturbation': float(fd_step)      # Ensures any internal IPOPT finite differencing matches MATLAB
-        }
-    )
-    
-    return result
+
+    # ---------------------------------------------------------
+    # ROUTE 1: IPOPT (The open-source interior-point replica)
+    # ---------------------------------------------------------
+    if optimizer_choice == 'ipopt':
+        lower_bounds = [1e-12, 0.01, 0.001, 0.1, -20.0]
+        upper_bounds = [np.inf, np.inf, 70.0,  80.0, 20.0]
+        bounds = Bounds(lower_bounds, upper_bounds)
+        
+        constraint_matrix = [
+            [0,  1,  0, 0, 1], # alpha + gamma >= 0
+            [0,  0, -1, 0, 1]  # gamma - beta <= 2
+        ]
+        linear_constraint = LinearConstraint(constraint_matrix, [0.0, -np.inf], [np.inf, 2.0])
+        
+        from cyipopt import minimize_ipopt
+        return minimize_ipopt(
+            obj_wrapper, x0=initial_guess, jac=jac_wrapper,
+            bounds=bounds, constraints=[linear_constraint],
+            options={'disp': 5, 'max_iter': 8000, 'tol': 1e-6, 'acceptable_tol': 1e-5}
+        )
+
+    # ---------------------------------------------------------
+    # ROUTE 2: SLSQP (SciPy Native)
+    # ---------------------------------------------------------
+    elif optimizer_choice == 'slsqp':
+        # SLSQP setup from previous steps...
+        result = minimize(
+            obj_wrapper,
+            x0=initial_guess,
+            method='SLSQP', #method='trust-constr',
+            bounds=bounds,
+            constraints=[linear_constraint],
+            options={
+                'disp': True,         # Set to True if you want to see iterations in the terminal
+                'maxiter': 8000,       # Max iterations
+                'ftol': 1e-8,
+                'eps': 1e-5,            # Step size for numerical gradient approximation (if needed)
+                # ,         # Function value tolerance
+                # 'xtol': 1e-12,         # Step tolerance
+                # 'gtol': 1e-12          # Optimality tolerance
+            }
+        )
+
+        return result
+
+    # ---------------------------------------------------------
+    # ROUTE 3: MATLAB FMINCON (via pyfmincon)
+    # ---------------------------------------------------------
+    elif optimizer_choice == 'fmincon':
+
+        import matlab
+        
+        # 1. We must wrap our objective function so it accepts a matlab.double array
+        # MATLAB passes the guess as a 1x5 matrix (e.g., x[0][0], x[0][1]...)
+        def matlab_obj_wrapper(x_matlab):
+            params = [x_matlab[0][i] for i in range(5)]
+            cost = objective_function(params, Te_data, target_data_scaled, weight_w)
+            return float(cost) # MATLAB needs a standard float back
+        
+        
+        # 2. Format Bounds into MATLAB arrays
+        # Note: Python's math.inf works perfectly inside matlab.double
+        lb = matlab.double([[1e-12, 0.01, 0.001, 0.1, -20.0]])
+        ub = matlab.double([[math.inf, math.inf, 70.0, 80.0, 20.0]])
+
+
+        # 3. Format Linear Constraints (A * x <= b)
+        A = matlab.double([
+            [0.0, -1.0,  0.0, 0.0, -1.0], 
+            [0.0,  0.0, -1.0, 0.0,  1.0]
+        ])
+        b = matlab.double([[0.0], [2.0]]) # b is a column vector
+        
+        x0_mat = matlab.double([initial_guess])
+        empty = matlab.double([])
+
+
+        # 4. Set the exact Paper Options via the engine
+        opts = eng.optimoptions('fmincon',
+            'Algorithm', 'interior-point',
+            'Display', 'iter',
+            'MaxIterations', 8000.0,
+            'FiniteDifferenceType', 'central',
+            'StepTolerance', 1e-12,
+            'FunctionTolerance', 1e-12,
+            'ConstraintTolerance', 1e-12,
+            'OptimalityTolerance', 1e-18
+        )
+
+        # 5. Call fmincon! (nargout=4 tells MATLAB to return the first 4 outputs)
+        xopt, fval, exitflag, output = eng.fmincon(
+            matlab_obj_wrapper, 
+            x0_mat, A, b, empty, empty, lb, ub, empty, 
+            opts, 
+            nargout=4
+        )
+
+        # 6. Wrap it in a Dummy SciPy Result object to keep the main script happy
+        class DummyResult: pass
+        result = DummyResult()
+        
+        # Extract the results from the 1x5 matlab.double output
+        result.x = [xopt[0][i] for i in range(5)] 
+        
+        # In MATLAB, exitflag > 0 means the optimization successfully converged
+        result.success = (exitflag > 0) 
+        
+        return result

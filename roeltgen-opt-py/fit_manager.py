@@ -35,7 +35,7 @@ if __name__ == "__main__":
     
     # 1. Load Data
     # For Hydrogen 
-    interp = load_adas_plt_h("plt96_h.dat")
+    interp = load_adas_plt_h("plt_data/plt96_h.dat")
 
     Te_data = 10 ** interp.get_knots()[0][3:-3]
     # print("Te Data Points (eV):", Te_data)
@@ -73,6 +73,7 @@ if __name__ == "__main__":
             print(f"  -> Running optimizer with V0 guess = {current_guess[3]:.2f}")
             
             result = run_single_optimization(current_guess, Te_data, target_data_scaled, w)
+            print(result.x)
             
             if result.success:
                 print("Optimizer result:")
