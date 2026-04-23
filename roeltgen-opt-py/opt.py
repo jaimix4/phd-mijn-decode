@@ -7,6 +7,7 @@ import numpy as np
 print('--- starting matlab engine ---')
 
 try:
+    import matlab
     import matlab.engine
 except ImportError:
     import warnings
@@ -31,19 +32,30 @@ def fmincon(function, x0, lb, ub, options={}, A=[], b=[], Aeq=[], beq=[],
     # start matlab engine
     # eng = matlab.engine.start_matlab(start_options)
 
-    if eng is None:
-        import matlab.engine
-        eng = matlab.engine.start_matlab()
+    # if eng is None:
+    #     import matlab.engine
+    eng = matlab.engine.start_matlab()
 
     # convert to numpy array then list then to matlab type
     # these first conversions are necessary to allow both numpy and list style inputs
+    # x0 = matlab.double(np.array(x0).tolist())
+    # ub = matlab.double(np.array(ub).tolist())
+    # lb = matlab.double(np.array(lb).tolist())
+
+    # A = matlab.double(np.array(A).tolist())
+    # b = matlab.double(np.array(b).tolist())
+    # Aeq = matlab.double(np.array(Aeq).tolist())
+    # beq = matlab.double(np.array(beq).tolist())
+
+    # Cast bounds and constraints to MATLAB doubles
     x0 = matlab.double(np.array(x0).tolist())
-    ub = matlab.double(np.array(ub).tolist())
-    lb = matlab.double(np.array(lb).tolist())
-    A = matlab.double(np.array(A).tolist())
-    b = matlab.double(np.array(b).tolist())
-    Aeq = matlab.double(np.array(Aeq).tolist())
-    beq = matlab.double(np.array(beq).tolist())
+    lb = matlab.double(np.array(lb).tolist()) if len(lb) > 0 else matlab.double([])
+    ub = matlab.double(np.array(ub).tolist()) if len(ub) > 0 else matlab.double([])
+    
+    A = matlab.double(A) if len(A) > 0 else matlab.double([])
+    b = matlab.double(b) if len(b) > 0 else matlab.double([])
+    Aeq = matlab.double(Aeq) if len(Aeq) > 0 else matlab.double([])
+    beq = matlab.double(beq) if len(beq) > 0 else matlab.double([])
 
     # run fmincon
     print('--- calling fmincon ---')

@@ -6,8 +6,24 @@ import numpy as np
 from scipy.integrate import quad
 from scipy.optimize import minimize, Bounds, LinearConstraint
 
-from cyipopt import minimize_ipopt
 from scipy.optimize._numdiff import approx_derivative
+
+# 1. DEFINE GLOBALS FOR THE MATLAB BRIDGE
+_MATLAB_TE = None
+_MATLAB_TARGET = None
+_MATLAB_WEIGHT = None
+
+# 2. DEFINE THE TOP-LEVEL MATLAB CALLBACK
+def matlab_objective(x_matlab):
+    """
+    Top-level wrapper that MATLAB can import and call via string reference.
+    Converts MATLAB's array format into a standard Python list of floats.
+    """
+    params = [float(val) for val in list(x_matlab)]
+    
+    # Evaluate using the globals set right before the engine call
+    cost = objective_function(params, _MATLAB_TE, _MATLAB_TARGET, _MATLAB_WEIGHT)
+    return float(cost)
 
 def safe_integrand(v_bar, Te, A_bar, alpha, beta, V0, gamma):
     # function to eq. 13 
@@ -142,6 +158,7 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
     # ROUTE 1: IPOPT (The open-source interior-point replica)
     # ---------------------------------------------------------
     if optimizer_choice == 'ipopt':
+
         lower_bounds = [1e-12, 0.01, 0.001, 0.1, -20.0]
         upper_bounds = [np.inf, np.inf, 70.0,  80.0, 20.0]
         bounds = Bounds(lower_bounds, upper_bounds)
@@ -153,6 +170,7 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
         linear_constraint = LinearConstraint(constraint_matrix, [0.0, -np.inf], [np.inf, 2.0])
         
         from cyipopt import minimize_ipopt
+
         return minimize_ipopt(
             obj_wrapper, x0=initial_guess, jac=jac_wrapper,
             bounds=bounds, constraints=[linear_constraint],
@@ -187,24 +205,27 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
     # ROUTE 3: MATLAB FMINCON (via pyfmincon)
     # ---------------------------------------------------------
 
-    elif optimizer_choice == 'fmincon':
-        # Import the bridged function from your local opt.py file
-        from opt import fmincon 
+    if optimizer_choice == 'fmincon':
         
-        # 1. Bounds (Standard Python Lists, using math.inf)
+        # this is only if we want to use the MATLAB bridge for optimization, otherwise we can just use the scipy minimize function directly
+        from opt import fmincon
+
+        # 3. SET GLOBALS SO THE CALLBACK CAN SEE THE CURRENT DATA
+        global _MATLAB_TE, _MATLAB_TARGET, _MATLAB_WEIGHT
+        _MATLAB_TE = Te_data
+        _MATLAB_TARGET = target_data_scaled
+        _MATLAB_WEIGHT = weight_w
+        
+        # Format bounds and constraints
         lb = [1e-12, 0.01, 0.001, 0.1, -20.0]
         ub = [math.inf, math.inf, 70.0,  80.0, 20.0]
         
-        # 2. Linear Constraints (A * x <= b)
-        # alpha + gamma >= 0  ->  -alpha - gamma <= 0
-        # gamma - beta <= 2   ->  -beta + gamma <= 2
         A = [
             [0.0, -1.0,  0.0, 0.0, -1.0], 
             [0.0,  0.0, -1.0, 0.0,  1.0]
         ]
-        b = [0.0, 2.0]
+        b = [[0.0], [2.0]]
         
-        # 3. Exact Paper Options Dictionary
         options = {
             'Algorithm': 'interior-point',
             'Display': 'iter',
@@ -216,9 +237,9 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
             'OptimalityTolerance': 1e-18
         }
         
-        # 4. Call the bridge using the original pyfmincon arguments
+        # 4. PASS THE FUNCTION AS A STRING
         xopt, fopt, exitflag, output = fmincon(
-            obj_wrapper, 
+            'optimizer_core.matlab_objective', # <- Must be a string reference
             initial_guess, 
             lb, 
             ub, 
@@ -228,11 +249,10 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
             eng=eng
         )
         
-        # 5. Package into a generic result object for fit_manager.py
+        # Package into standard return object
         class DummyResult: pass
         result = DummyResult()
         
-        # Ensure it returns a flat 1D array/list
         result.x = np.array(xopt).flatten()
         result.success = (exitflag > 0)
         
