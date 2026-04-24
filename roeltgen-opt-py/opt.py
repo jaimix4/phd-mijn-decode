@@ -24,28 +24,12 @@ except ImportError:
 def fmincon(function, x0, lb, ub, options={}, A=[], b=[], Aeq=[], beq=[],
         providegradients=False, eng=None):
 
-    # check if setpython has a path (e.g., /usr/bin/python)
-    # start_options = '-nodesktop -nojvm'
-    # if setpython is not None:
-    #     start_options += ' -r pyversion ' + setpython
-
-    # start matlab engine
-    # eng = matlab.engine.start_matlab(start_options)
-
-    # if eng is None:
-    #     import matlab.engine
-    eng = matlab.engine.start_matlab()
-
-    # convert to numpy array then list then to matlab type
-    # these first conversions are necessary to allow both numpy and list style inputs
-    # x0 = matlab.double(np.array(x0).tolist())
-    # ub = matlab.double(np.array(ub).tolist())
-    # lb = matlab.double(np.array(lb).tolist())
-
-    # A = matlab.double(np.array(A).tolist())
-    # b = matlab.double(np.array(b).tolist())
-    # Aeq = matlab.double(np.array(Aeq).tolist())
-    # beq = matlab.double(np.array(beq).tolist())
+    # 1. Respect the passed engine. Do not overwrite it.
+    owns_engine = False
+    if eng is None:
+        import matlab.engine
+        eng = matlab.engine.start_matlab()
+        owns_engine = True
 
     # Cast bounds and constraints to MATLAB doubles
     x0 = matlab.double(np.array(x0).tolist())
@@ -66,6 +50,8 @@ def fmincon(function, x0, lb, ub, options={}, A=[], b=[], Aeq=[], beq=[],
     exitflag = int(exitflag)
 
     # close matlab engine
-    eng.quit()
+    if owns_engine:
+        print('--- shutting down matlab engine ---')
+        eng.quit()
 
     return xopt, fopt, exitflag, output

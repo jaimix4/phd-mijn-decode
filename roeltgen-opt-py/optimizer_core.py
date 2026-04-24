@@ -5,36 +5,25 @@ import math
 import numpy as np
 from scipy.integrate import quad
 from scipy.optimize import minimize, Bounds, LinearConstraint
-
 from scipy.optimize._numdiff import approx_derivative
 
-# 1. DEFINE GLOBALS FOR THE MATLAB BRIDGE
-_MATLAB_TE = None
-_MATLAB_TARGET = None
-_MATLAB_WEIGHT = None
+# 1. STATE CONTAINER FOR MATLAB BRIDGE
+class MatlabBridgeState:
+    Te = None
+    Target = None
+    Weight = None
 
-# 2. DEFINE THE TOP-LEVEL MATLAB CALLBACK
+# 2. TOP-LEVEL MATLAB CALLBACK
 def matlab_objective(x_matlab):
-    """
-    Top-level wrapper that MATLAB can import and call via string reference.
-    Converts MATLAB's array format into a standard Python list of floats.
-    """
     params = [float(val) for val in list(x_matlab)]
-    
-    # Evaluate using the globals set right before the engine call
-    cost = objective_function(params, _MATLAB_TE, _MATLAB_TARGET, _MATLAB_WEIGHT)
+    cost = objective_function(params, MatlabBridgeState.Te, MatlabBridgeState.Target, MatlabBridgeState.Weight)
     return float(cost)
 
-# --- ADD THIS INITIALIZATION FUNCTION ---
+# 3. INITIALIZATION HOOK
 def init_matlab_globals(te, target, w):
-    """
-    Called by MATLAB to populate the data arrays in its isolated Python memory space.
-    """
-    global _MATLAB_TE, _MATLAB_TARGET, _MATLAB_WEIGHT
-    _MATLAB_TE = np.array(te).flatten()
-    _MATLAB_TARGET = np.array(target).flatten()
-    _MATLAB_WEIGHT = float(w)
-
+    MatlabBridgeState.Te = np.array(te).flatten()
+    MatlabBridgeState.Target = np.array(target).flatten()
+    MatlabBridgeState.Weight = float(w)
 
 def safe_integrand(v_bar, Te, A_bar, alpha, beta, V0, gamma):
     # function to eq. 13 
@@ -222,19 +211,15 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
         import matlab
         from opt import fmincon
 
-        # 3. SET GLOBALS SO THE CALLBACK CAN SEE THE CURRENT DATA
-        # global _MATLAB_TE, _MATLAB_TARGET, _MATLAB_WEIGHT
-        # _MATLAB_TE = Te_data
-        # _MATLAB_TARGET = target_data_scaled
-        # _MATLAB_WEIGHT = weight_w
+        # Force MATLAB to reload this Python module, clearing any broken cache
+        eng.eval("mod = py.importlib.import_module('optimizer_core'); py.importlib.reload(mod);", nargout=0)
 
-        # --- SEND DATA TO MATLAB'S EMBEDDED PYTHON ---
         # 1. Load data into the MATLAB workspace
         eng.workspace['te_mat'] = matlab.double(Te_data.tolist())
         eng.workspace['target_mat'] = matlab.double(target_data_scaled.tolist())
         eng.workspace['w_mat'] = float(weight_w)
         
-        # 2. Instruct MATLAB to run the initialization function
+        # 2. Initialize the Class state in MATLAB's embedded Python
         eng.eval("py.optimizer_core.init_matlab_globals(te_mat, target_mat, w_mat)", nargout=0)
         
         # Format bounds and constraints
