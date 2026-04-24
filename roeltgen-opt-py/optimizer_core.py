@@ -25,6 +25,17 @@ def matlab_objective(x_matlab):
     cost = objective_function(params, _MATLAB_TE, _MATLAB_TARGET, _MATLAB_WEIGHT)
     return float(cost)
 
+# --- ADD THIS INITIALIZATION FUNCTION ---
+def init_matlab_globals(te, target, w):
+    """
+    Called by MATLAB to populate the data arrays in its isolated Python memory space.
+    """
+    global _MATLAB_TE, _MATLAB_TARGET, _MATLAB_WEIGHT
+    _MATLAB_TE = np.array(te).flatten()
+    _MATLAB_TARGET = np.array(target).flatten()
+    _MATLAB_WEIGHT = float(w)
+
+
 def safe_integrand(v_bar, Te, A_bar, alpha, beta, V0, gamma):
     # function to eq. 13 
     # at this stage, the optimizer is not in its final implementation 
@@ -208,13 +219,23 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
     if optimizer_choice == 'fmincon':
         
         # this is only if we want to use the MATLAB bridge for optimization, otherwise we can just use the scipy minimize function directly
+        import matlab
         from opt import fmincon
 
         # 3. SET GLOBALS SO THE CALLBACK CAN SEE THE CURRENT DATA
-        global _MATLAB_TE, _MATLAB_TARGET, _MATLAB_WEIGHT
-        _MATLAB_TE = Te_data
-        _MATLAB_TARGET = target_data_scaled
-        _MATLAB_WEIGHT = weight_w
+        # global _MATLAB_TE, _MATLAB_TARGET, _MATLAB_WEIGHT
+        # _MATLAB_TE = Te_data
+        # _MATLAB_TARGET = target_data_scaled
+        # _MATLAB_WEIGHT = weight_w
+
+        # --- SEND DATA TO MATLAB'S EMBEDDED PYTHON ---
+        # 1. Load data into the MATLAB workspace
+        eng.workspace['te_mat'] = matlab.double(Te_data.tolist())
+        eng.workspace['target_mat'] = matlab.double(target_data_scaled.tolist())
+        eng.workspace['w_mat'] = float(weight_w)
+        
+        # 2. Instruct MATLAB to run the initialization function
+        eng.eval("py.optimizer_core.init_matlab_globals(te_mat, target_mat, w_mat)", nargout=0)
         
         # Format bounds and constraints
         lb = [1e-12, 0.01, 0.001, 0.1, -20.0]
