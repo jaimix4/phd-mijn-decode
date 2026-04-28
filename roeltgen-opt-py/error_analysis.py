@@ -36,6 +36,9 @@ def error_analysis(ratio, te, Lz):
     cond3 = (np.log10(ratio) > 0.5 * Lz_mag) & (Lz_mag > np.log10(8))
     if np.any(cond3): 
         successes[2] = False
+
+    # condition 3 needs to be checked
+    # successes[2] = True
         
     if np.any(ratio[Lz_ind_1e2] > 1.3): 
         successes[3] = False

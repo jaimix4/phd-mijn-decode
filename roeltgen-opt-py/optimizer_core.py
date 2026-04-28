@@ -1,6 +1,8 @@
 # script with functions to compute 
 # safe_integrand: the integrand in eq. 12 in Roeltgen's paper
-
+#### useful stuff #####
+# c_const = 8*electron_charge/sqrt(pi)*(2*electron_charge/mass)^(xn(5)/2);
+#######################
 import math
 import numpy as np
 from scipy.integrate import quad
@@ -75,20 +77,29 @@ def objective_function(params, Te_data, Li_target_data, weight_w):
 
         Te_j = Te_data[j]
         y_j = Li_target_data[j] # This is already L_z * 1e30
+
+        v_max = np.sqrt(30.0 * Te_j)
     
-        
         # integral split in two parts, having V0 as the split point
         # to handle numerical instabilities around the peak of the integrand
 
-        val_1, _ = quad(safe_integrand, 0, V0, 
-                        args=(Te_j, A_scaled, alpha, beta, V0, gamma),
-                        epsabs=1e-6, epsrel=1e-6)
-                        
-        val_2, _ = quad(safe_integrand, V0, np.inf, 
-                        args=(Te_j, A_scaled, alpha, beta, V0, gamma),
-                        epsabs=1e-6, epsrel=1e-6)
-                        
-        calcY = val_1 + val_2
+        if V0 < v_max:
+
+            val_1, _ = quad(safe_integrand, 0, V0, 
+                            args=(Te_j, A_scaled, alpha, beta, V0, gamma),
+                            epsabs=1e-8, epsrel=1e-8)
+                            
+            val_2, _ = quad(safe_integrand, V0, v_max, 
+                            args=(Te_j, A_scaled, alpha, beta, V0, gamma),
+                            epsabs=1e-8, epsrel=1e-8)
+                            
+            calcY = val_1 + val_2
+
+        else:
+            # If V0 is larger than the expected peak, we can just do a single integral to save time
+            calcY, _ = quad(safe_integrand, 0, v_max, 
+                            args=(Te_j, A_scaled, alpha, beta, V0, gamma),
+                            epsabs=1e-8, epsrel=1e-8)
 
         # single integral 
         # calcY, _ = quad(safe_integrand, 0, np.inf, 
@@ -221,7 +232,7 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
         
         # 2. Initialize the Class state in MATLAB's embedded Python
         eng.eval("py.optimizer_core.init_matlab_globals(te_mat, target_mat, w_mat)", nargout=0)
-        
+
         # Format bounds and constraints
         lb = [1e-12, 0.01, 0.001, 0.1, -20.0]
         ub = [math.inf, math.inf, 70.0,  80.0, 20.0]

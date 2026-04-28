@@ -23,13 +23,25 @@ def get_model_emissivity(params, Te_data):
         #               points=[V0], epsabs=1e-8, epsrel=1e-8)
         # calcY[j] = val
         # FIX: Match the split integral from the optimizer core
-        val_1, _ = quad(safe_integrand, 0, V0, 
-                        args=(Te_j, A_scaled, alpha, beta, V0, gamma),
-                        epsabs=1e-8, epsrel=1e-8)
-        val_2, _ = quad(safe_integrand, V0, np.inf, 
-                        args=(Te_j, A_scaled, alpha, beta, V0, gamma),
-                        epsabs=1e-8, epsrel=1e-8)
-        calcY[j] = val_1 + val_2
+
+        v_max = np.sqrt(30.0 * Te_j)
+
+        if V0 < v_max:
+
+            val_1, _ = quad(safe_integrand, 0, V0, 
+                            args=(Te_j, A_scaled, alpha, beta, V0, gamma),
+                            epsabs=1e-8, epsrel=1e-8)
+            val_2, _ = quad(safe_integrand, V0, v_max, 
+                            args=(Te_j, A_scaled, alpha, beta, V0, gamma),
+                            epsabs=1e-8, epsrel=1e-8)
+            calcY[j] = val_1 + val_2
+
+        else:
+            
+            val, _ = quad(safe_integrand, 0, v_max, 
+                            args=(Te_j, A_scaled, alpha, beta, V0, gamma),
+                            epsabs=1e-8, epsrel=1e-8)
+            calcY[j] = val
     return calcY
 
 def plot_fit(params_fit, Te_data, target_data_scaled, species, charge_state, w):
@@ -63,7 +75,7 @@ def plot_fit(params_fit, Te_data, target_data_scaled, species, charge_state, w):
         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
     
     if species == 'H' and charge_state == '0':
-        roeltgen_params_model = [5.5949e-32, 8e3, 7.9587517e-1, 3.52, -1.391]
+        roeltgen_params_model = [5.5949e-32, 8.0000102e3, 7.9587517e-1, 3.5201735, -1.3919964]
     elif species == 'Li' and charge_state == '0':
         roeltgen_params_model = [3.2276775e-31, 8e3, 1.6314718, 1.8314244, -7.2283424] # Placeholder values for Li+0
     elif species == 'Li' and charge_state == '1':
@@ -253,7 +265,7 @@ if __name__ == "__main__":
         else:
             print("No fit passed all error criteria across all weights.")
 
-            
+
     finally:
         # This block executes unconditionally, cleanly returning the license
         if eng is not None:
