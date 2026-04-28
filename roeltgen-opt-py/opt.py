@@ -27,7 +27,7 @@ def fmincon(function, x0, lb, ub, options={}, A=[], b=[], Aeq=[], beq=[],
     # 1. Respect the passed engine. Do not overwrite it.
     owns_engine = False
     if eng is None:
-        import matlab.engine
+        # import matlab.engine
         eng = matlab.engine.start_matlab()
         owns_engine = True
 

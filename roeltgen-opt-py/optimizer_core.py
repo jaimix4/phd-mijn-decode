@@ -19,7 +19,7 @@ class MatlabBridgeState:
 def matlab_objective(x_matlab):
     params = [float(val) for val in list(x_matlab)]
     cost = objective_function(params, MatlabBridgeState.Te, MatlabBridgeState.Target, MatlabBridgeState.Weight)
-    return float(cost)
+    return float(cost), []
 
 # 3. INITIALIZATION HOOK
 def init_matlab_globals(te, target, w):
@@ -243,13 +243,32 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
         ]
         b = [[0.0], [2.0]]
         
+        # options = {
+        #     'Algorithm': 'interior-point',
+        #     'Display': 'iter',
+        #     'MaxIterations': 8000,
+        #     'FiniteDifferenceType': 'central',
+        #     'StepTolerance': 1e-12,
+        #     'FunctionTolerance': 1e-12,
+        #     'ConstraintTolerance': 1e-12,
+        #     'OptimalityTolerance': 1e-18
+        # }
+        # Calculate standard machine epsilon square root (~1.49e-08)
+        matlab_sqrt_eps = float(np.sqrt(np.finfo(float).eps))
+
+        # The Exact 1:1 options mapping from the paper's MATLAB script
         options = {
             'Algorithm': 'interior-point',
-            'Display': 'iter',
-            'MaxIterations': 8000,
+            'Display': 'iter', 
+            'Diagnostics': 'off',
+            'FunValCheck': 'on',
+            'MaxIterations': 8000.0,
+            'MaxFunctionEvaluations': 12000.0,
             'FiniteDifferenceType': 'central',
+            'FiniteDifferenceStepSize': matlab_sqrt_eps,
+            'DiffMaxChange': 0.1,
             'StepTolerance': 1e-12,
-            'FunctionTolerance': 1e-12,
+            'FunctionTolerance': 1e-12, 
             'ConstraintTolerance': 1e-12,
             'OptimalityTolerance': 1e-18
         }
