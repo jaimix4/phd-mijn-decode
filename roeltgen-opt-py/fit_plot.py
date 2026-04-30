@@ -86,7 +86,14 @@ def plot_fit(params_fit, Te_data, target_data_scaled, species, charge_state, w):
         roeltgen_params_model = [8.0128134e-33, 8e3, 6.3932130e-1, 4.8535296, -1.0357297] # Placeholder values for He+0
     elif species == 'He' and charge_state == '1':
         roeltgen_params_model = [4.0872258e-32, 8e3, 5.3427114e-1, 6.6810820, -1.6390255] # Placeholder values for He+1
-    
+# He+1    
+# FINAL BEST FIT (Weight = 0.14):
+# A_phys = 6.3245e-32
+# alpha  = 7919.1261
+# beta   = 0.2845
+# V0     = 6.6232
+# gamma  = -1.8788
+
     roeltgen_model = get_model_emissivity(roeltgen_params_model, Te_data)
 
     param_text = (
