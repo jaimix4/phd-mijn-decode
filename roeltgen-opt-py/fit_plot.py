@@ -1,9 +1,10 @@
 # script to fit and showing plots of parameters
-
+import os
 import numpy as np
 from scipy.integrate import quad
 import matplotlib.pyplot as plt
 import argparse
+from datetime import datetime # Added for unique run ID
 
 # Import from your other modules
 from data_parser import load_adas_plt_h, get_lz_si
@@ -18,13 +19,9 @@ def get_model_emissivity(params, Te_data):
     calcY = np.zeros_like(Te_data)
     
     for j, Te_j in enumerate(Te_data):
-        # val, _ = quad(safe_integrand, 0, np.inf, 
-        #               args=(Te_j, A_scaled, alpha, beta, V0, gamma),
-        #               points=[V0], epsabs=1e-8, epsrel=1e-8)
-        # calcY[j] = val
-        # FIX: Match the split integral from the optimizer core
 
-        v_max = np.sqrt(30.0 * Te_j)
+        # instead of integrating to infinity, I integrate to a large velocity. 
+        v_max = np.sqrt(40.0 * Te_j)
 
         if V0 < v_max:
 
@@ -121,6 +118,101 @@ def plot_fit(params_fit, Te_data, target_data_scaled, species, charge_state, w):
 
     return 0
 
+def plot_and_save_fit(params_fit, Te_data, target_data_scaled, species, charge_state, density_log10, w, run_id, optimizer, Bs, show_plot=False, save_plot=True):
+    """Generates a 1x2 subplot, showing it interactively and/or saving it."""
+    calcY_scaled = get_model_emissivity(params_fit, Te_data)
+    
+    os.makedirs("results", exist_ok=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    
+    x_log = np.log10(Te_data)
+    y_target = target_data_scaled / Bs
+    y_model = calcY_scaled / Bs
+
+    # --- 1. Base Plots (Target and My Fit) ---
+    for ax in (ax1, ax2):
+        ax.plot(x_log, y_target, '-b', label='OpenADAS')
+        ax.plot(x_log, y_model, '*-g', label='My fit')
+        ax.set_xlabel('log10[ T_e (eV) ]', fontsize=12)
+        ax.grid(True, alpha=0.3)
+
+    ax1.set_ylabel('log10[ Emissivity (Wm^3) ]', fontsize=12)
+    ax2.set_ylabel('Emissivity (Wm^3)', fontsize=12)
+    ax1.set_title('Log-Log Scale', fontsize=14)
+    ax2.set_title('Linear-Log Scale', fontsize=14)
+
+    # --- 2. Roeltgen Parameters & Plotting ---
+    roeltgen_params_model = None
+    if species == 'H' and charge_state == '0':
+        roeltgen_params_model = [5.5949e-32, 8.0000102e3, 7.9587517e-1, 3.5201735, -1.3919964]
+    elif species == 'Li' and charge_state == '0':
+        roeltgen_params_model = [3.2276775e-31, 8e3, 1.6314718, 1.8314244, -7.2283424] 
+    elif species == 'Li' and charge_state == '1':
+        roeltgen_params_model = [1.8391597e-32, 1.5550315e4, 4.8963899e-1, 7.7295814, -1.4801717] 
+    elif species == 'Li' and charge_state == '2':
+        roeltgen_params_model = [1.1269619e-32, 6.0237296e3, 8.8021499e-1, 9.9228372, -1.2597055] 
+    elif species == 'He' and charge_state == '0':
+        roeltgen_params_model = [8.0128134e-33, 8e3, 6.3932130e-1, 4.8535296, -1.0357297] 
+    elif species == 'He' and charge_state == '1':
+        roeltgen_params_model = [4.0872258e-32, 8e3, 5.3427114e-1, 6.6810820, -1.6390255] 
+
+    if roeltgen_params_model is not None:
+        # Scale A up so get_model_emissivity behaves consistently, then scale the result back down
+        r_params_scaled = list(roeltgen_params_model)
+        r_params_scaled[0] *= Bs 
+        roeltgen_model = get_model_emissivity(r_params_scaled, Te_data) / Bs
+
+        ax1.plot(x_log, np.log10(roeltgen_model), '*r', label='Roeltgen fit')
+        ax2.plot(x_log, roeltgen_model, '*r', label='Roeltgen fit')
+
+        r_text = (
+            f"Roeltgen Parameters:\n"
+            f"A = {roeltgen_params_model[0]:.4e}\n"
+            f"alpha = {roeltgen_params_model[1]:.4f}\n"
+            f"beta = {roeltgen_params_model[2]:.4f}\n"
+            f"V0 = {roeltgen_params_model[3]:.4f}\n"
+            f"gamma = {roeltgen_params_model[4]:.4f}"
+        )
+        ax1.text(0.05, 0.95, r_text, transform=ax1.transAxes, fontsize=11, 
+                 verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
+    else:
+        # If we plot a log scale, we must log the data arrays
+        ax1.plot(x_log, np.log10(y_target), '-b', label='OpenADAS')
+        ax1.plot(x_log, np.log10(y_model), '*-g', label='My fit')
+
+    # Re-apply log-log data to ax1 (to overwrite the linear data drawn in the base loop)
+    ax1.lines[0].set_ydata(np.log10(y_target))
+    ax1.lines[1].set_ydata(np.log10(y_model))
+
+    # --- 3. My Fit Parameters & Legends ---
+    A_phys = params_fit[0] / Bs
+    param_text = (
+        f"Fitted Parameters:\n"
+        f"A = {A_phys:.4e}\n"
+        f"alpha = {params_fit[1]:.4f}\n"
+        f"beta = {params_fit[2]:.4f}\n"
+        f"V0 = {params_fit[3]:.4f}\n"
+        f"gamma = {params_fit[4]:.4f}"
+    )
+    ax2.text(0.05, 0.95, param_text, transform=ax2.transAxes, fontsize=11, 
+             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='gray'))
+
+    ax1.legend(loc='lower right')
+    ax2.legend(loc='lower right')
+    plt.suptitle(f"Run ID: {run_id} | {species}^{charge_state}+ | n_e = 10^{density_log10} | w = {w:.2f} | Opt: {optimizer.upper()}", fontsize=16)
+
+    # --- 4. Show and Save Actions ---
+    if show_plot:
+        plt.show() # Note: This will pause the terminal until the plot window is closed
+        
+    if save_plot:
+        filename = f"results/{species}_{charge_state}_{run_id}.png"
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        print(f"    -> Plot saved to {filename}")
+        
+    if not show_plot:
+        plt.close() # Clean up memory if we only saved it
+
 if __name__ == "__main__":
 
 # --- ADD ARGPARSE ---
@@ -136,13 +228,22 @@ if __name__ == "__main__":
                         help="Charge state integer (e.g., 1, 2, 3)")
     
     # add argument to wether plot the fit or not
-    parser.add_argument('--plot', type=bool, default=True)
+    #parser.add_argument('--plot', type=bool, default=True)
+
+    parser.add_argument('--plot', action='store_true', 
+                        help="Show interactive plots whenever a better fit is found")
 
     args = parser.parse_args()
+
+    # Generate unique run ID
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    density_log10 = 13.0 # Hardcoded for now, can be an argument later
+    Bs = 1e30
 
     print("=========================================")
     print(f"--- FITTING SPECIES: {args.species.capitalize()}^{args.charge}+ ---")
     print(f"--- OPTIMIZER: {args.optimizer.upper()} ---")
+    print(f"--- RUN ID: {run_id} ---")
     print("=========================================\n")
 
     # --- START MATLAB ENGINE ONCE ---
@@ -160,7 +261,7 @@ if __name__ == "__main__":
         Te_data, target_data_unscaled = load_roeltgen_formatted(
             species=args.species, 
             charge_state=args.charge, 
-            log10_ne_cm3=13.0
+            log10_ne_cm3=density_log10
         )
     except Exception as e:
         print(f"Data Loading Error: {e}")
@@ -179,21 +280,25 @@ if __name__ == "__main__":
         print(charge_state)
         # interp = load_adas_plt_h("plt_data/plt96_h.dat")
 
-        # Te_data = 10 ** interp.get_knots()[0][3:-3]
-        
-        Bs = 1e30
         # target_data_unscaled = np.array([get_lz_si(1e19, te, interp) for te in Te_data])
         target_data_scaled = target_data_unscaled * Bs
         
         # 2. Setup Loop Parameters
         # Order: [A_scaled, alpha, beta, V0, gamma]
-        initial_guess = [0.02, 8e3, 0.8, 4.0, -4.0] 
+        initial_guess = [0.02, 8e3, 0.8, 1.5, -4.0] 
         #initial_guess = [5.5949e-32*Bs, 8, 7.9587517e-1, 3.52, -1.391] # Initial guess for the 5 parameters
-        weight_powers = np.arange(0.1, 0.31, 0.01) 
+        weight_powers = np.arange(0.1, 0.20, 0.01) 
         print("Weight Powers to Test:", weight_powers)
+
+        # best_fit_params = None
+        # best_weight = None
+        # global_min_error = np.inf
+
+        global_min_error = np.inf
         best_fit_params = None
         best_weight = None
-        global_min_error = np.inf
+        best_successes = None
+        best_max_error = None
         
         # 3. OUTER LOOP: Iterate through the weight powers
         for w in weight_powers:
@@ -214,63 +319,76 @@ if __name__ == "__main__":
                 #plot_fit(result.x, Te_data, target_data_scaled, species, w)
                 
                 if result.success:
-                    print("Optimizer result plotting result:")
-
-                    if args.plot:
-                        plot_fit(result.x, Te_data, target_data_scaled, species, charge_state, w)
-
                     calcY_scaled = get_model_emissivity(result.x, Te_data)
-                    #calcY_scaled = get_model_emissivity(initial_guess, Te_data)
                     ratio = np.maximum(calcY_scaled / target_data_scaled, target_data_scaled / calcY_scaled)
-                    
-                    # Send to Error Analysis Judge
                     successes, max_error = error_analysis(ratio, Te_data, target_data_scaled)
 
-                    print("------------Fit performance-----------------")
-                    print("--------------------------------------------")
-                    print("------------ ratio of model to target: -------------")
-                    print(ratio)
-                    print("------------ successes: -------------")
-                    print(successes)
-                    print("------------ max error in each zone: -------------")
-                    print(max_error)
-                    print("--------------------------------------------")
+                    print(f"  V0={current_guess[3]:.2f} | Z1 Err: {max_error[0]:.2f} | Z2 Err: {max_error[1]:.2f} | Z3 Err: {max_error[2]:.2f} | Passed: {sum(successes)}/6")
+                    
+                    if max_error[0] < global_min_error:
+                        global_min_error = max_error[0]
+                        best_fit_params = result.x
+                        best_weight = w
+                        best_successes = successes
+                        best_max_error = max_error
+                        print(f"    --> (New Global Best Fit Logged)")
+                        
+                        # --- INTERACTIVE DISPLAY TRIGGER ---
+                        if args.plot:
+                            print("    --> Showing intermediate best plot (Close window to continue)...")
+                            plot_and_save_fit(best_fit_params, Te_data, target_data_scaled, species, charge_state, density_log10, best_weight, run_id, args.optimizer, Bs, show_plot=True, save_plot=False)
                     
                     if all(successes):
                         print("    [PASS] Fit meets all physical criteria!")
                         passed_all_tests = True
-                        
-                        # Check if this is the best fit overall
-                        if max_error[0] < global_min_error:
-                            global_min_error = max_error[0]
-                            best_fit_params = result.x
-                            best_weight = w
-                            print("    --> New Global Best Fit Found!")
-                            
-                        # Chain this successful fit as the starting point for the next weight
-                        initial_guess = result.x
+                        initial_guess = result.x 
                     else:
-                        print("    [FAIL] Fit criteria not met. Kicking V0 by 2.00x and retrying...")
-                        current_guess[3] *= 2.0 # Increase V0 just like MATLAB
+                        current_guess[3] *= 1.7
                 else:
-                    print("    [FAIL] Optimizer did not converge. Kicking V0 by 2.00x and retrying...")
-                    current_guess[3] *= 2.0
+                    print(f"  V0={current_guess[3]:.2f} | [FAIL] Optimizer did not converge.")
+                    current_guess[3] *= 1.7
                     
             if not passed_all_tests:
-                print(f"  Giving up on weight {w:.2f}. V0 exceeded 200.")
+                print(f"  Giving up on weight {w:.2f}. V0 exceeded bounds.")
 
-        # 5. Final Output
+
+        # --- FINAL OUTPUT AND ALWAYS SAVING ---
         print("\n=========================================")
         if best_fit_params is not None:
-            print(f"FINAL BEST FIT (Weight = {best_weight:.2f}):")
             A_phys = best_fit_params[0] / Bs
+            pass_all = all(best_successes)
+            
+            print(f"FINAL BEST FIT (Weight = {best_weight:.2f}):")
             print(f"A_phys = {A_phys:.4e}")
             print(f"alpha  = {best_fit_params[1]:.4f}")
             print(f"beta   = {best_fit_params[2]:.4f}")
             print(f"V0     = {best_fit_params[3]:.4f}")
             print(f"gamma  = {best_fit_params[4]:.4f}")
+            print(f"Passed Error Checks: {pass_all}")
+            
+            # 1. Always save the final best plot 
+            plot_and_save_fit(best_fit_params, Te_data, target_data_scaled, species, charge_state, density_log10, best_weight, run_id, args.optimizer, Bs, show_plot=False, save_plot=True)
+            
+            # 2. Append to Database Text File
+            db_path = "results/fit_database.txt"
+            file_exists = os.path.isfile(db_path)
+            
+            with open(db_path, "a") as f:
+                if not file_exists:
+                    f.write("run_id,species,charge,density_log10,optimizer,weight,A,alpha,beta,V0,gamma,max_err_z1,max_err_z2,max_err_z3,passed_all\n")
+                
+                row_data = [
+                    run_id, species, charge_state, str(density_log10), args.optimizer, 
+                    f"{best_weight:.2f}", f"{A_phys:e}", f"{best_fit_params[1]:.4f}", 
+                    f"{best_fit_params[2]:.4f}", f"{best_fit_params[3]:.4f}", f"{best_fit_params[4]:.4f}",
+                    f"{best_max_error[0]:.4f}", f"{best_max_error[1]:.4f}", f"{best_max_error[2]:.4f}", 
+                    str(pass_all)
+                ]
+                f.write(",".join(row_data) + "\n")
+            print(f"-> Data appended to {db_path}")
+
         else:
-            print("No fit passed all error criteria across all weights.")
+            print("Optimizer failed to find any valid fits.")
 
 
     finally:
