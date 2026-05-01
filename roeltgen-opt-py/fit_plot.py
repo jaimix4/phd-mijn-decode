@@ -218,7 +218,7 @@ if __name__ == "__main__":
 # --- ADD ARGPARSE ---
     parser = argparse.ArgumentParser(description="Run the Radiation Fitter")
     parser.add_argument('--optimizer', type=str, default='ipopt', 
-                        choices=['slsqp', 'ipopt', 'fmincon'],
+                        choices=['slsqp', 'ipopt', 'fmincon', 'trust-constr'],
                         help="Choose the optimization engine: slsqp, ipopt, or fmincon")
     
     # --- ADD SPECIES AND CHARGE ARGUMENTS ---

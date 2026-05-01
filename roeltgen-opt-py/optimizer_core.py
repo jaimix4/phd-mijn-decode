@@ -131,7 +131,7 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
     # 2. Define constraints (Equivalent to MATLAB's xl and xu)
     # Order: [A_scaled, alpha, beta, V0, gamma]
     # Using the safe physics bounds from radiation_wrapper.m
-    lower_bounds = [1e-12, 0.01, 0.001, 0.1, -20.0]
+    lower_bounds = [1e-12, 0.01, 0.08, 0.1, -20.0]
     upper_bounds = [np.inf, np.inf, 70.0,  80.0, 20.0]
     bounds = Bounds(lower_bounds, upper_bounds)
     
@@ -170,7 +170,7 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
     # ---------------------------------------------------------
     if optimizer_choice == 'ipopt':
 
-        lower_bounds = [1e-12, 0.01, 0.001, 0.1, -20.0]
+        lower_bounds = [1e-12, 0.01, 0.08, 0.1, -20.0]
         upper_bounds = [np.inf, np.inf, 70.0,  80.0, 20.0]
         bounds = Bounds(lower_bounds, upper_bounds)
         
@@ -187,12 +187,36 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
             bounds=bounds, constraints=[linear_constraint],
             options={'disp': 5, 'max_iter': 8000, 'tol': 1e-6, 'acceptable_tol': 1e-5}
         )
+    
+    elif optimizer_choice == 'trust-constr':
+        matlab_sqrt_eps = float(np.sqrt(np.finfo(float).eps))
+        
+        result = minimize(
+            obj_wrapper,
+            x0=initial_guess,
+            method='trust-constr',
+            bounds=bounds,
+            constraints=[linear_constraint],
+            options={
+                'disp': False, 
+                'maxiter': 8000,
+                'xtol': 1e-12,                # Matched to MATLAB StepTolerance
+                'gtol': 1e-12,                # Matched to MATLAB OptimalityTolerance
+                'barrier_tol': 1e-12,         # Strict interior-point barrier
+                'finite_diff_rel_step': matlab_sqrt_eps # Matched to MATLAB StepSize
+            }
+        )
+        return result
 
     # ---------------------------------------------------------
     # ROUTE 2: SLSQP (SciPy Native)
     # ---------------------------------------------------------
     elif optimizer_choice == 'slsqp':
         # SLSQP setup from previous steps...
+
+        # Calculate standard machine epsilon square root (~1.49e-08)
+        matlab_sqrt_eps = float(np.sqrt(np.finfo(float).eps))
+
         result = minimize(
             obj_wrapper,
             x0=initial_guess,
@@ -202,8 +226,8 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
             options={
                 'disp': True,         # Set to True if you want to see iterations in the terminal
                 'maxiter': 8000,       # Max iterations
-                'ftol': 1e-8,
-                'eps': 1e-5,            # Step size for numerical gradient approximation (if needed)
+                'ftol': 1e-12,
+                'eps': matlab_sqrt_eps,            # Step size for numerical gradient approximation (if needed)
                 # ,         # Function value tolerance
                 # 'xtol': 1e-12,         # Step tolerance
                 # 'gtol': 1e-12          # Optimality tolerance
@@ -234,7 +258,7 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
         eng.eval("py.optimizer_core.init_matlab_globals(te_mat, target_mat, w_mat)", nargout=0)
 
         # Format bounds and constraints
-        lb = [1e-12, 0.01, 0.001, 0.1, -20.0]
+        lb = [1e-12, 0.01, 0.01, 0.1, -20.0]
         ub = [math.inf, math.inf, 70.0,  80.0, 20.0]
         
         A = [
@@ -243,16 +267,6 @@ def run_single_optimization(initial_guess, Te_data, Li_target_data, weight_w, op
         ]
         b = [[0.0], [2.0]]
         
-        # options = {
-        #     'Algorithm': 'interior-point',
-        #     'Display': 'iter',
-        #     'MaxIterations': 8000,
-        #     'FiniteDifferenceType': 'central',
-        #     'StepTolerance': 1e-12,
-        #     'FunctionTolerance': 1e-12,
-        #     'ConstraintTolerance': 1e-12,
-        #     'OptimalityTolerance': 1e-18
-        # }
         # Calculate standard machine epsilon square root (~1.49e-08)
         matlab_sqrt_eps = float(np.sqrt(np.finfo(float).eps))
 
